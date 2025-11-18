@@ -8,7 +8,8 @@ import (
 )
 
 type Config struct {
-	Address string `yaml:"address"`
+	Address  string `yaml:"address"`
+	LogLevel string `yaml:"log_level"`
 }
 
 func New() *Config {
@@ -24,7 +25,7 @@ func New() *Config {
 
 	var config Config
 
-	if err := cleanenv.ReadEnv(&config); err != nil {
+	if err := cleanenv.ReadConfig(configPath, &config); err != nil {
 		log.Fatalf("cannot read config file: %s", err)
 	}
 
