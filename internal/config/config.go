@@ -10,6 +10,7 @@ import (
 type Config struct {
 	Address  string `yaml:"address"`
 	LogLevel string `yaml:"log_level"`
+	Storage  string `yaml:"storage_path"`
 }
 
 func New() *Config {

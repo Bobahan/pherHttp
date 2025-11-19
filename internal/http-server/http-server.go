@@ -1,46 +1,34 @@
 package httpserver
 
 import (
+	"database/sql"
 	"gopher/internal/config"
+	"gopher/internal/storage/sqlstorage"
 	"net/http"
-
-	"github.com/sirupsen/logrus"
 )
 
-type HttpServer struct {
-	config *config.Config
-	logger *logrus.Logger
-}
-
-func New(config *config.Config) *HttpServer {
-	return &HttpServer{
-		config: config,
-		logger: logrus.New(),
-	}
-}
-
-func (h *HttpServer) Start() error {
-	if err := h.configureLogger(); err != nil {
-		return err
-	}
-
-	h.logger.Info("starting http server")
-
-	if err := http.ListenAndServe(h.config.Address, nil); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (h *HttpServer) configureLogger() error {
-	level, err := logrus.ParseLevel(h.config.LogLevel)
+func Start(config *config.Config) error {
+	db, err := newDatabase(config.Storage)
 
 	if err != nil {
 		return err
 	}
 
-	h.logger.SetLevel(level)
+	defer db.Close()
 
-	return nil
+	storage := sqlstorage.New(db)
+
+	server := newServer(storage)
+
+	return http.ListenAndServe(config.Address, server.router)
+}
+
+func newDatabase(databaseUrl string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite3", databaseUrl)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return db, nil
 }

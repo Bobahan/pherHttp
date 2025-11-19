@@ -1,2 +1,3 @@
-address: ":8080"
+address: ":7878"
 log_level: "debug"
+storage_path: "./storage/storage.db"

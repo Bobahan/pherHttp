@@ -9,9 +9,7 @@ import (
 func main() {
 	config := config.New()
 
-	s := httpserver.New(config)
-
-	if err := s.Start(); err != nil {
+	if err := httpserver.Start(config); err != nil {
 		log.Fatal(err)
 	}
 }
