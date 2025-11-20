@@ -1,3 +1,4 @@
 address: ":7878"
 log_level: "debug"
 storage_path: "./storage/storage.db"
+session_key: "LibmtP593vAy8o5OWCURqfGb54nuhC0O"

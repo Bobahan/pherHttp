@@ -32,15 +32,37 @@ func (r *UserRepository) Create(u *model.User) error {
 		return err
 	}
 
-	fmt.Println("id", id)
+	u.Id = int(id)
 
 	return nil
 }
 
+func (r *UserRepository) FindById(id string) (*model.User, error) {
+	user, err := r.getUserBy("id", id)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return user, nil
+}
+
 func (r *UserRepository) FindByEmail(email string) (*model.User, error) {
+	user, err := r.getUserBy("email", email)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return user, nil
+}
+
+func (r *UserRepository) getUserBy(param string, value string) (*model.User, error) {
 	user := &model.User{}
 
-	row := r.storage.db.QueryRow(`SELECT id, email, pass FROM users WHERE email = ?`, email)
+	query := fmt.Sprintf("SELECT id, email, pass FROM users WHERE %s = ?", param)
+
+	row := r.storage.db.QueryRow(query, value)
 
 	if err := row.Scan(&user.Id, &user.Email, &user.Password); err != nil {
 		if err == sql.ErrNoRows {

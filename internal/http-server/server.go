@@ -1,26 +1,47 @@
 package httpserver
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
+	"gopher/internal/dto"
 	"gopher/internal/model"
 	"gopher/internal/storage"
+	"io"
 	"net/http"
+	"strconv"
 
+	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
-	"github.com/k0kubun/pp"
+	"github.com/gorilla/sessions"
 	"github.com/sirupsen/logrus"
 )
+
+const (
+	sessionName        = "bobahan"
+	ctxKeyUser  ctxKey = iota
+)
+
+var (
+	errIncorrectEmailOrPassword = errors.New("incorrect email or password")
+	errNotAuth                  = errors.New("not authenticated")
+)
+
+type ctxKey int8
 
 type server struct {
 	router  *mux.Router
 	logger  *logrus.Logger
 	storage storage.Storage
+	session sessions.Store
 }
 
-func newServer(storage storage.Storage) *server {
+func newServer(storage storage.Storage, session sessions.Store) *server {
 	s := &server{
 		router:  mux.NewRouter(),
 		logger:  logrus.New(),
 		storage: storage,
+		session: session,
 	}
 
 	s.configureRouter()
@@ -35,22 +56,141 @@ func newServer(storage storage.Storage) *server {
 }
 
 func (s *server) configureRouter() {
-	s.router.Path("/users").Methods("POST").HandlerFunc(s.handleCreate)
-	s.router.Path("/user").Methods("GET").HandlerFunc(s.handleFindUser)
+	s.router.Use(handlers.CORS(handlers.AllowedOrigins([]string{"*"})))
+	s.router.Path("/users").Methods("POST").HandlerFunc(s.handleCreateUser)
+	s.router.Path("/users/{id}").Methods("GET").HandlerFunc(s.handleFindUser)
+	s.router.Path("/sessions").Methods("POST").HandlerFunc(s.handleCreateSession)
+
+	private := s.router.PathPrefix("/private").Subrouter()
+	private.Use(s.authMiddleware)
+	private.HandleFunc("/whoami", s.handleWhoami).Methods("GET")
 }
 
 func (s *server) handleFindUser(w http.ResponseWriter, r *http.Request) {
-	email := "kelmann@mail.ru"
+	id := mux.Vars(r)["id"]
 
-	user, _ := s.storage.User().FindByEmail(email)
+	user, err := s.storage.User().FindById(id)
 
-	pp.Println(user)
+	if err != nil {
+		return
+	}
+
+	user.Sanitize()
+
+	s.response(w, r, http.StatusOK, user)
 }
 
-func (s *server) handleCreate(w http.ResponseWriter, r *http.Request) {
-	user := &model.User{Email: "kovrikovich@mail.ru", Password: "09fdhdjk2"}
+func (s *server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
+	b, err := io.ReadAll(r.Body)
 
-	s.storage.User().Create(user)
+	if err != nil {
+		return
+	}
+
+	var userDto dto.User
+
+	if err := json.Unmarshal(b, &userDto); err != nil {
+		s.error(w, r, http.StatusBadRequest, err)
+		return
+	}
+
+	user := &model.User{Email: userDto.Email, Password: userDto.Passowrd}
+
+	if err := s.storage.User().Create(user); err != nil {
+		s.error(w, r, http.StatusUnprocessableEntity, err)
+		return
+	}
+
+	user.Sanitize()
+	s.response(w, r, http.StatusOK, user)
+}
+
+func (s *server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
+	b, err := io.ReadAll(r.Body)
+
+	if err != nil {
+		return
+	}
+
+	var userDto dto.User
+
+	if err := json.Unmarshal(b, &userDto); err != nil {
+		s.error(w, r, http.StatusBadRequest, err)
+		return
+	}
+
+	user, err := s.storage.User().FindByEmail(userDto.Email)
+
+	if err != nil || !user.CheckPassword(userDto.Passowrd) {
+		s.error(w, r, http.StatusUnauthorized, errIncorrectEmailOrPassword)
+		return
+	}
+
+	session, err := s.session.Get(r, sessionName)
+
+	if err != nil {
+		s.error(w, r, http.StatusInternalServerError, err)
+		return
+	}
+
+	session.Values["user_id"] = user.Id
+
+	if err := s.session.Save(r, w, session); err != nil {
+		s.error(w, r, http.StatusInternalServerError, err)
+		return
+	}
+
+	s.response(w, r, http.StatusOK, nil)
+
+}
+
+func (s *server) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		session, err := s.session.Get(r, sessionName)
+
+		if err != nil {
+			s.error(w, r, http.StatusInternalServerError, err)
+			return
+		}
+
+		id, ok := session.Values["user_id"]
+
+		if !ok {
+			s.error(w, r, http.StatusUnauthorized, errNotAuth)
+			return
+		}
+
+		user, err := s.storage.User().FindById(strconv.Itoa(id.(int)))
+
+		if err != nil {
+			s.error(w, r, http.StatusUnauthorized, errNotAuth)
+			return
+		}
+
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKeyUser, user)))
+	})
+}
+
+func (s *server) handleWhoami(w http.ResponseWriter, r *http.Request) {
+	s.response(w, r, http.StatusOK, r.Context().Value(ctxKeyUser).(*model.User))
+}
+
+func (s *server) error(w http.ResponseWriter, r *http.Request, httpStatusCode int, err error) {
+	s.response(w, r, httpStatusCode, map[string]string{"error": err.Error()})
+}
+
+func (s *server) response(w http.ResponseWriter, r *http.Request, httpStatusCode int, data interface{}) {
+	w.WriteHeader(httpStatusCode)
+
+	if data != nil {
+		b, err := json.Marshal(data)
+
+		if err != nil {
+			return
+		}
+
+		w.Write(b)
+	}
 }
 
 func (s *server) configureLogger() error {

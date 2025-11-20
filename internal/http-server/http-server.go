@@ -5,6 +5,8 @@ import (
 	"gopher/internal/config"
 	"gopher/internal/storage/sqlstorage"
 	"net/http"
+
+	"github.com/gorilla/sessions"
 )
 
 func Start(config *config.Config) error {
@@ -18,7 +20,9 @@ func Start(config *config.Config) error {
 
 	storage := sqlstorage.New(db)
 
-	server := newServer(storage)
+	session := sessions.NewCookieStore([]byte(config.SessionKey))
+
+	server := newServer(storage, session)
 
 	return http.ListenAndServe(config.Address, server.router)
 }

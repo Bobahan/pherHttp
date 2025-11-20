@@ -8,9 +8,10 @@ import (
 )
 
 type Config struct {
-	Address  string `yaml:"address"`
-	LogLevel string `yaml:"log_level"`
-	Storage  string `yaml:"storage_path"`
+	Address    string `yaml:"address"`
+	LogLevel   string `yaml:"log_level"`
+	Storage    string `yaml:"storage_path"`
+	SessionKey string `yaml:"session_key"`
 }
 
 func New() *Config {
