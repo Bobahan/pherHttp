@@ -10,7 +10,9 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
@@ -20,6 +22,7 @@ import (
 const (
 	sessionName        = "bobahan"
 	ctxKeyUser  ctxKey = iota
+	ctxKeyRequestId
 )
 
 var (
@@ -56,6 +59,8 @@ func newServer(storage storage.Storage, session sessions.Store) *server {
 }
 
 func (s *server) configureRouter() {
+	s.router.Use(s.setRequestIdMiddleware)
+	s.router.Use(s.logRequestMiddleware)
 	s.router.Use(handlers.CORS(handlers.AllowedOrigins([]string{"*"})))
 	s.router.Path("/users").Methods("POST").HandlerFunc(s.handleCreateUser)
 	s.router.Path("/users/{id}").Methods("GET").HandlerFunc(s.handleFindUser)
@@ -168,6 +173,31 @@ func (s *server) authMiddleware(next http.Handler) http.Handler {
 		}
 
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKeyUser, user)))
+	})
+}
+
+func (s *server) setRequestIdMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := uuid.New().String()
+
+		w.Header().Set("X-Request-ID", id)
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKeyRequestId, id)))
+	})
+}
+
+func (s *server) logRequestMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		logger := s.logger.WithFields(logrus.Fields{
+			"remote_addr": r.RemoteAddr,
+			"request_id":  r.Context().Value(ctxKeyRequestId),
+		})
+
+		logger.Infof("started %s %s", r.Method, r.RequestURI)
+
+		startAt := time.Now()
+		next.ServeHTTP(w, r)
+
+		logger.Infof("completed in %v", time.Since(startAt))
 	})
 }
 
